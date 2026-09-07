@@ -1,3 +1,5 @@
+import http from "node:http";
+import https from "node:https";
 import { config } from "./config.mjs";
 
 // Everything the gateway is willing to reach on the runner. Anything that
@@ -24,27 +26,83 @@ export class OllamaError extends Error {
   }
 }
 
-async function call(pathname, { method = "GET", body, signal, timeoutMs = 30_000, baseUrl } = {}) {
+/**
+ * Upstream calls go through node:http rather than fetch.
+ *
+ * fetch (undici) enforces a 300-second headersTimeout that cannot be
+ * configured without pulling in undici directly, and a large prompt
+ * legitimately produces no bytes at all while the GPU works through it --
+ * 128k tokens takes minutes before the first token appears. Under fetch that
+ * is indistinguishable from a hang, and the request dies at exactly 5 minutes
+ * no matter what timeout this project sets.
+ *
+ * The timeout here is an inactivity timeout, which is the meaningful one: if
+ * nothing has moved for this long, something really is wrong.
+ */
+function call(pathname, { method = "GET", body, signal, timeoutMs = 30_000, baseUrl } = {}) {
   const base = baseUrl ?? config.ollamaUrl;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const onAbort = () => controller.abort();
-  signal?.addEventListener("abort", onAbort, { once: true });
-  try {
-    const res = await fetch(`${base}${pathname}`, {
-      method,
-      headers: body ? { "content-type": "application/json" } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
+  return new Promise((resolve, reject) => {
+    let url;
+    try {
+      url = new URL(base);
+    } catch {
+      reject(new OllamaError(`invalid backend url: ${base}`, 502));
+      return;
+    }
+    const lib = url.protocol === "https:" ? https : http;
+    const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
+
+    const req = lib.request(
+      {
+        hostname: url.hostname,
+        port: url.port || (url.protocol === "https:" ? 443 : 80),
+        path: pathname,
+        method,
+        headers: payload ? { "content-type": "application/json", "content-length": payload.length } : {},
+      },
+      (res) => {
+        const collect = () =>
+          new Promise((done, fail) => {
+            const chunks = [];
+            res.on("data", (c) => chunks.push(c));
+            res.on("end", () => done(Buffer.concat(chunks).toString("utf8")));
+            res.on("error", fail);
+          });
+        resolve({
+          ok: res.statusCode >= 200 && res.statusCode < 300,
+          status: res.statusCode,
+          headers: { get: (k) => res.headers[String(k).toLowerCase()] ?? null },
+          // A Node Readable, not a web stream: callers pipe it directly.
+          body: res,
+          text: collect,
+          json: async () => {
+            const raw = await collect();
+            try {
+              return raw ? JSON.parse(raw) : {};
+            } catch {
+              throw new OllamaError("upstream returned malformed JSON", 502);
+            }
+          },
+        });
+      },
+    );
+
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new OllamaError(`upstream sent nothing for ${Math.round(timeoutMs / 1000)}s`, 504));
     });
-    return res;
-  } catch (err) {
-    if (err.name === "AbortError") throw new OllamaError("upstream request aborted", 504);
-    throw new OllamaError(`cannot reach Ollama at ${base}: ${err.message}`, 502);
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", onAbort);
-  }
+
+    const onAbort = () => req.destroy(new OllamaError("client disconnected", 499));
+    signal?.addEventListener("abort", onAbort, { once: true });
+    req.on("close", () => signal?.removeEventListener("abort", onAbort));
+
+    req.on("error", (err) => {
+      if (err instanceof OllamaError) reject(err);
+      else reject(new OllamaError(`cannot reach Ollama at ${base}: ${err.message}`, 502));
+    });
+
+    if (payload) req.write(payload);
+    req.end();
+  });
 }
 
 async function json(pathname, options) {

@@ -316,7 +316,7 @@ export async function chatCompletions(req, res, client) {
     let sentRole = false;
     let sawToolCall = false;
     try {
-      for await (const chunk of ndjson(Readable.fromWeb(upstream.body))) {
+      for await (const chunk of ndjson(upstream.body)) {
         if (res.writableEnded) break;
         if (chunk.error) {
           write({ error: { message: chunk.error } });

@@ -95,7 +95,10 @@ export const config = {
   // concurrent request, which is the one thing that scales with user count.
   contextTokens: num(pick("ctx", "SHAREGPU_CTX", "contextTokens"), 0) || null,
   maxQueueDepth: num(pick("queue", "SHAREGPU_QUEUE", "maxQueueDepth"), 64),
-  requestTimeoutMs: num(pick("timeout", "SHAREGPU_TIMEOUT", "requestTimeoutMs"), 10 * 60_000),
+  // Inactivity, not total duration. A 128k-token prompt produces no bytes for
+  // several minutes while it is processed, so this has to exceed the longest
+  // plausible prompt-eval, not the longest plausible response.
+  requestTimeoutMs: num(pick("timeout", "SHAREGPU_TIMEOUT", "requestTimeoutMs"), 30 * 60_000),
 
   // Per-client token bucket, refilled continuously. Deliberately generous: the
   // GPU queue is the real backpressure, and an agent loop fires many small

@@ -6,6 +6,7 @@
 #   model-profile.sh shared       4 slots, 16k ctx  -- everyday, concurrent
 #   model-profile.sh big          1 slot,  16k ctx  -- 49B class (~28 GiB)
 #   model-profile.sh huge         1 slot,   8k ctx, q4 KV -- 70B IQ3_M (~30 GiB)
+#   model-profile.sh long         1 slot, 128k ctx -- long-context work
 #
 # Why this exists: slots, context length and KV precision are runner-wide
 # settings, but the right values depend entirely on the size of the model you
@@ -30,8 +31,9 @@ case "${1:-}" in
   shared) PAR=4; CTX=16384; KV=q8_0 ;;
   big)    PAR=1; CTX=16384; KV=q8_0 ;;
   huge)   PAR=1; CTX=8192;  KV=q4_0 ;;
-  "")     show; echo; echo "  profiles: shared | big | huge"; exit 0 ;;
-  *)      echo "  unknown profile '${1}'. Use: shared | big | huge"; exit 1 ;;
+  long)   PAR=1; CTX=131072; KV=q8_0 ;;
+  "")     show; echo; echo "  profiles: shared | big | huge | long"; exit 0 ;;
+  *)      echo "  unknown profile '${1}'. Use: shared | big | huge | long"; exit 1 ;;
 esac
 
 cp -a "$UNIT" "${UNIT}.bak-$(date +%Y%m%d-%H%M%S)"

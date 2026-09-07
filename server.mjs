@@ -184,7 +184,7 @@ async function startPull(model, by) {
     if (!upstream.ok) throw new Error((await upstream.text()) || `upstream ${upstream.status}`);
 
     let lastEmit = 0;
-    for await (const chunk of ndjson(Readable.fromWeb(upstream.body))) {
+    for await (const chunk of ndjson(upstream.body)) {
       if (chunk.error) throw new Error(chunk.error);
       pullState.status = chunk.status ?? pullState.status;
       if (chunk.digest) {
@@ -633,7 +633,7 @@ async function route(req, res, url, client) {
     const forward = async () => {
       const upstream = await ollama.raw(upstreamPath, { method, body, timeoutMs: config.requestTimeoutMs });
       res.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") ?? "application/json" });
-      if (upstream.body) await pipeline(Readable.fromWeb(upstream.body), res).catch(() => {});
+      if (upstream.body) await pipeline(upstream.body, res).catch(() => {});
       else res.end();
     };
 

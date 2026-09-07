@@ -31,6 +31,7 @@ on a phone -- single column, touch sized, and it works over the VPN.*
 | [Running models bigger than one card](#running-models-bigger-than-one-card) | pooling, driver swaps, sizing |
 | [Dashboard](#dashboard) | what the web UI does |
 | [Options](#options) | every flag |
+| [Adjusting context](#adjusting-the-context-window) | one command, whole chain |
 
 ## The constraint this is built around
 
@@ -237,6 +238,39 @@ what you are short of:
   and image generation on the small card and leave the big one headless for the
   LLM. That reclaims the VRAM the desktop session holds and removes the
   contention the broker otherwise has to work around.
+
+## Adjusting the context window
+
+```bash
+./scripts/context.sh            # current setting, and what would fit
+./scripts/context.sh 32k        # accepts 8k, 32768, 128k ...
+./scripts/context.sh max        # the largest that fits the resident model
+```
+
+Changing context by hand means editing a systemd unit, remembering
+`daemon-reload`, restarting the runner, reloading the model, and updating any
+client that declares a context of its own. Missing that last step silently
+truncates long conversations -- the agent quietly forgets the start of the task
+with no error anywhere. This does the whole chain and reports the latency cost.
+
+The status view sizes against the model actually loaded, reading its layer
+count, KV heads and head dimension from its own metadata rather than guessing:
+
+```
+current  : 32k (32768)
+weights  : ~23.5 GiB   KV at 32k: ~1.5 GiB
+free now : 5.5 GiB
+headroom allows roughly 146k context on this model
+```
+
+Context is allocated **per slot**, so `OLLAMA_NUM_PARALLEL=4` costs four KV
+caches. Slot count lives in `model-profile.sh`; after switching profile, re-run
+`context.sh` so the two agree.
+
+A full window is not free: prompt evaluation measured ~165 tok/s on this pool,
+so a complete 128k prompt takes about 13 minutes before the first token, against
+~3 minutes at 32k. Most turns use a fraction of the window -- you pay this only
+when you genuinely fill it.
 
 ## Desktop shortcuts
 
