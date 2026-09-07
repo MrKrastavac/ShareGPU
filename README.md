@@ -27,7 +27,7 @@ on a phone -- single column, touch sized, and it works over the VPN.*
 | [Agentic work](#agentic-work) | tool calling, and what actually matters for agents |
 | [Using it — raw compute](#using-it--raw-compute) | leasing the whole card for non-LLM work |
 | [Adding other machines](#adding-other-machines-and-windows) | federating Windows/macOS/Linux GPUs |
-| **[Pooling cards in one Windows machine](docs/windows-multi-gpu.md)** | **multi-GPU Ollama on Windows** |
+| **[Pooling cards in one machine](#pooling-several-cards-in-one-machine)** | **multi-GPU Ollama — [Linux](docs/linux-multi-gpu.md) · [Windows](docs/windows-multi-gpu.md)** |
 | [Running models bigger than one card](#running-models-bigger-than-one-card) | pooling, driver swaps, sizing |
 | [Dashboard](#dashboard) | what the web UI does |
 | [Options](#options) | every flag |
@@ -150,11 +150,16 @@ unit of hot-plugging is a machine, not a card.
 Responses carry `sharegpu.provider` (and an `X-ShareGPU-Provider` header) so a
 client can see which machine served it.
 
-## Pooling several cards in one Windows machine
+## Pooling several cards in one machine
 
 Different job from federation, and it does not involve ShareGPU at all -- it is
-Ollama configuration. Full guide with sizing arithmetic, measured throughput and
-troubleshooting: **[docs/windows-multi-gpu.md](docs/windows-multi-gpu.md)**.
+Ollama and driver configuration. Full guides with sizing arithmetic, measured
+throughput and troubleshooting:
+
+- **[Linux](docs/linux-multi-gpu.md)** -- written from a verified two-GPU build,
+  including the driver swap and the DKMS/`depmod` step that decides whether the
+  machine comes back with a display
+- **[Windows](docs/windows-multi-gpu.md)**
 
 The short version:
 
@@ -162,12 +167,14 @@ The short version:
    setting fixes a driver that has not bound to the card. Pascal (GTX 10xx) and
    older need the 580 driver branch; the open kernel module supports Turing and
    newer only.
-2. **Set `OLLAMA_SCHED_SPREAD=1`** in your *user* environment variables.
-   Without it the scheduler fits a model onto one card and only spills over when
-   forced.
-3. **Quit Ollama from the system tray and reopen it.** Closing the window does
-   not restart it -- it keeps running with the old environment. This is the step
-   that silently defeats people.
+2. **Set `OLLAMA_SCHED_SPREAD=1`.** Without it the scheduler fits a model onto
+   one card and only spills over when forced. On Linux that is an
+   `Environment=` line in the systemd unit; on Windows a *user* environment
+   variable.
+3. **Restart Ollama so it actually picks the change up.** On Linux that means
+   `systemctl daemon-reload` *then* restart -- restarting alone keeps the old
+   environment. On Windows, quit from the system tray; closing the window does
+   not restart it.
 4. **Verify** with `ollama ps` and `nvidia-smi` that memory is in use on *both*
    cards.
 
