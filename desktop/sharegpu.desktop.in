@@ -1,0 +1,49 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=ShareGPU
+GenericName=Shared GPU Gateway
+Comment=Share this machine's GPU over the VPN: an OpenAI-compatible endpoint and leasable raw compute
+Exec=__ROOT__/scripts/launch.sh
+Path=__ROOT__
+Icon=__ROOT__/assets/icon.svg
+Terminal=false
+StartupNotify=true
+Categories=Development;
+Keywords=gpu;ai;llm;ollama;openai;vpn;share;agent;
+Actions=ChatOnly;LocalOnly;Stop;FreeGpu;Diagnose;Firewall;Log;
+
+[Desktop Action ChatOnly]
+Name=Start without compute or downloads
+Icon=network-wired
+Exec=__ROOT__/scripts/launch.sh --chat-only
+
+[Desktop Action LocalOnly]
+Name=Start on this machine only
+Icon=computer
+Exec=__ROOT__/scripts/launch.sh --local
+
+[Desktop Action Stop]
+Name=Stop ShareGPU
+Icon=process-stop
+Exec=__ROOT__/scripts/stop.sh
+
+[Desktop Action FreeGpu]
+Name=Stop and free the GPU
+Icon=edit-clear
+Exec=__ROOT__/scripts/stop.sh --free-gpu
+
+[Desktop Action Diagnose]
+Name=Why can a device not connect?
+Icon=network-connect
+Exec=konsole --hold -e __ROOT__/scripts/diagnose.sh
+
+[Desktop Action Firewall]
+Name=Open the firewall
+Icon=security-high
+Exec=konsole --hold -e __ROOT__/scripts/allow_firewall.sh
+
+[Desktop Action Log]
+Name=Open the startup log
+Icon=utilities-terminal
+Exec=xdg-open __ROOT__/.sharegpu/app.log

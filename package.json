@@ -1,0 +1,15 @@
+{
+  "name": "sharegpu",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Share one GPU across a VPN: an OpenAI-compatible LLM gateway and a leased raw-compute runner, arbitrated so they never collide.",
+  "scripts": {
+    "start": "node server.mjs",
+    "start:vpn": "node server.mjs --vpn",
+    "dev": "node --watch server.mjs",
+    "check": "node --check server.mjs && node --check public/app.js && for f in src/*.mjs; do node --check $f || exit 1; done",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

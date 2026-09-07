@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Stop ShareGPU
+GenericName=Shut down the shared GPU gateway
+Comment=Stop the gateway, releasing any compute lease and killing its jobs
+Exec=__ROOT__/scripts/stop.sh
+Path=__ROOT__
+Icon=__ROOT__/assets/icon-stop.svg
+Terminal=false
+StartupNotify=false
+Categories=Development;
+Keywords=stop;quit;shutdown;close;gpu;
+Actions=FreeGpu;
+
+[Desktop Action FreeGpu]
+Name=Stop and free the GPU
+Icon=edit-clear
+Exec=__ROOT__/scripts/stop.sh --free-gpu

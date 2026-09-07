@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0d1013">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>ShareGPU</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🖥️</text></svg>">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>ShareGPU</h1>
+    <span class="mode offline" id="mode">connecting</span>
+    <span class="endpoint" id="gpu-name">—</span>
+    <span class="spacer"></span>
+    <span class="endpoint">API base <b id="api-base">—</b></span>
+  </header>
+
+  <main>
+    <section class="card wide" aria-labelledby="h-connect">
+      <h2 id="h-connect">Connect</h2>
+      <div class="connect-head">
+        <div>
+          <div class="label">API base — point any OpenAI-compatible client here</div>
+          <div class="urlrow"><code id="c-base">—</code><button class="copy" data-copy="#c-base">Copy</button></div>
+        </div>
+        <div>
+          <div class="label">API key</div>
+          <div class="urlrow"><code>any non-empty string</code></div>
+        </div>
+        <div>
+          <div class="label">Model to use</div>
+          <div class="urlrow"><code id="c-model">—</code><button class="copy" data-copy="#c-model">Copy</button></div>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Client setup">
+        <button role="tab" aria-selected="true" data-tab="sdk">Python / SDK</button>
+        <button role="tab" aria-selected="false" data-tab="ui">Open WebUI</button>
+        <button role="tab" aria-selected="false" data-tab="editor">Editors</button>
+        <button role="tab" aria-selected="false" data-tab="curl">curl</button>
+        <button role="tab" aria-selected="false" data-tab="agents">Agents</button>
+        <button role="tab" aria-selected="false" data-tab="compute">Raw GPU</button>
+      </div>
+      <div class="tabbody"><pre id="c-snippet"><code></code></pre>
+        <button class="copy floaty" data-copy="#c-snippet code">Copy</button></div>
+      <div class="note" id="c-note"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-try">
+      <h2 id="h-try">Try it from this device</h2>
+      <div class="try">
+        <label class="sr-only" for="try-model">Model</label>
+        <select id="try-model"></select>
+        <label class="sr-only" for="try-prompt">Prompt</label>
+        <textarea id="try-prompt" rows="2" placeholder="Ask something…">Say hello in one short sentence.</textarea>
+        <div class="try-row">
+          <label class="check"><input type="checkbox" id="try-think"> thinking</label>
+          <span class="spacer"></span>
+          <span class="endpoint" id="try-stat"></span>
+          <button id="try-send">Send</button>
+        </div>
+      </div>
+      <div class="reply" id="try-out" aria-live="polite"></div>
+      <div class="note">Sends a real request through <code>/v1/chat/completions</code> — the same path your other clients use.</div>
+    </section>
+
+    <section class="card" aria-labelledby="h-device">
+      <h2 id="h-device">Device</h2>
+      <div class="metrics">
+        <div class="metric"><div class="label">Utilisation</div><div class="value" id="m-util">—<span class="unit">%</span></div></div>
+        <div class="metric"><div class="label">Temp</div><div class="value" id="m-temp">—<span class="unit">°C</span></div></div>
+        <div class="metric"><div class="label">Power</div><div class="value" id="m-power">—<span class="unit">W</span></div></div>
+      </div>
+      <div class="bar" role="img" aria-label="GPU memory usage" id="bar">
+        <span class="used" id="bar-used" style="width:0%"></span>
+        <span class="reserved" id="bar-reserved" style="width:0%"></span>
+      </div>
+      <div class="bar-legend">
+        <span><i class="dot" style="background:var(--accent)"></i><span id="lg-used">—</span></span>
+        <span><i class="dot" style="background:color-mix(in srgb, var(--warn) 60%, transparent)"></i><span id="lg-reserved">—</span></span>
+        <span><i class="dot" style="background:var(--panel-2)"></i><span id="lg-free">—</span></span>
+      </div>
+      <div id="gpu-cards" class="gcards"></div>
+      <div class="note" id="budget-note"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-llm">
+      <h2 id="h-llm">LLM traffic</h2>
+      <div class="metrics">
+        <div class="metric"><div class="label">In flight</div><div class="value" id="m-active">—</div></div>
+        <div class="metric"><div class="label">Queued</div><div class="value" id="m-queued">—</div></div>
+        <div class="metric"><div class="label">Served</div><div class="value" id="m-served">—</div></div>
+        <div class="metric"><div class="label">Swaps</div><div class="value" id="m-swaps">—</div></div>
+      </div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Client</th><th>Model</th><th class="num">Waited</th><th class="num">Running</th></tr></thead>
+          <tbody id="active-rows"></tbody>
+        </table>
+      </div>
+      <div class="note" id="swap-note"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-lease">
+      <h2 id="h-lease">Compute lease</h2>
+      <div id="lease-body"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-models">
+      <h2 id="h-models">Models</h2>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Name</th><th class="num">Size</th><th>State</th><th></th></tr></thead>
+          <tbody id="model-rows"></tbody>
+        </table>
+      </div>
+      <div class="note">Loading keeps a model resident so nobody pays a cold start. Only one large model fits at a time, so a swap makes everyone wait for the reload.</div>
+      <div id="pull-box" class="pullbox">
+        <div class="label">Download a new model</div>
+        <div class="urlrow">
+          <label class="sr-only" for="pull-name">Model name</label>
+          <input id="pull-name" type="text" placeholder="e.g. qwen3:8b or hf.co/user/repo:q4_K_M" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <button id="pull-go">Download</button>
+        </div>
+        <div id="pull-progress" class="pullprog">
+          <div class="bar"><span class="used" id="pull-bar" style="width:0%"></span></div>
+          <div class="pullstat"><span id="pull-text">—</span><button id="pull-cancel">Cancel</button></div>
+        </div>
+        <div class="note" id="pull-note"></div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="h-clients">
+      <h2 id="h-clients">Clients seen</h2>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Address</th><th>Name</th><th class="num">Reqs</th><th class="num">Last seen</th></tr></thead>
+          <tbody id="client-rows"></tbody>
+        </table>
+      </div>
+      <div id="rejected" class="warnbox"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-jobs">
+      <h2 id="h-jobs">Jobs</h2>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Job</th><th>Client</th><th>Status</th><th class="num">Duration</th></tr></thead>
+          <tbody id="job-rows"></tbody>
+        </table>
+      </div>
+      <div class="note" id="compute-note"></div>
+    </section>
+
+    <section class="card wide" aria-labelledby="h-log">
+      <h2 id="h-log">Activity</h2>
+      <div class="log" id="log" role="log" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

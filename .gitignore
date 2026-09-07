@@ -1,0 +1,5 @@
+node_modules/
+.sharegpu/
+*.log
+__pycache__/
+*.pyc
