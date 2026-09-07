@@ -17,6 +17,21 @@ progress. The Connect panel at the top hands any client its setup.*
 *Left: ready-to-paste setup for six kinds of client. Right: the same dashboard
 on a phone -- single column, touch sized, and it works over the VPN.*
 
+## Contents
+
+| | |
+| --- | --- |
+| [Setup](#setup) | install and run it |
+| [Serving the VPN](#serving-the-vpn) | firewall, allow-lists, reaching it from a phone |
+| [Using it — chat](#using-it--chat) | the OpenAI-compatible endpoint |
+| [Agentic work](#agentic-work) | tool calling, and what actually matters for agents |
+| [Using it — raw compute](#using-it--raw-compute) | leasing the whole card for non-LLM work |
+| [Adding other machines](#adding-other-machines-and-windows) | federating Windows/macOS/Linux GPUs |
+| **[Pooling cards in one Windows machine](docs/windows-multi-gpu.md)** | **multi-GPU Ollama on Windows** |
+| [Running models bigger than one card](#running-models-bigger-than-one-card) | pooling, driver swaps, sizing |
+| [Dashboard](#dashboard) | what the web UI does |
+| [Options](#options) | every flag |
+
 ## The constraint this is built around
 
 The machine has a single RTX 3090: 24 GB total, of which the desktop session
@@ -80,6 +95,92 @@ big enough to force `OLLAMA_NUM_PARALLEL=1` makes every other device on the VPN
 queue behind it. Size is the wrong axis to optimise for agent work.
 
 Only `setup-pi.sh` and `sharegpu.py` are served under `/client/`, by exact name.
+
+## Adding other machines (and Windows)
+
+Any machine running Ollama can join the pool. It does **not** run ShareGPU --
+it just runs Ollama and lets the gateway reach it, which is why Windows and
+macOS machines can contribute a GPU without any of this project's
+Linux-specific parts being ported.
+
+On the machine joining:
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File clients/windows/join-pool.ps1 -Gateway http://gpu-box:8770
+```
+
+```bash
+# Linux / macOS -- the same two steps by hand
+OLLAMA_HOST=0.0.0.0:11434 ollama serve
+curl -X POST http://gpu-box:8770/api/providers \
+  -H 'content-type: application/json' \
+  -d '{"url":"http://this-machine:11434","name":"studio-pc"}'
+```
+
+Or paste the URL into **Add a machine** on the dashboard.
+
+### Why routing rather than pooling
+
+llama.cpp can genuinely pool VRAM across hosts with its RPC backend, so a
+model larger than any single machine becomes possible. The cost is that every
+token's activations cross the network, and on Ethernet that dominates -- you
+buy capacity and pay for it in latency on every request.
+
+Federating instead keeps each model wholly on one host and routes whole
+requests. A second machine then adds throughput and capacity without adding
+per-token latency, and one slow machine cannot drag down requests that are not
+using it.
+
+The trade is explicit: **pooling raises the ceiling on model size, federation
+raises throughput and availability.** Within one machine ShareGPU still pools
+across cards, because there the interconnect is PCIe rather than Ethernet.
+
+### How a request is placed
+
+A backend that already holds the model wins outright -- a cold load is several
+GB off disk, which dwarfs any queueing difference. Among equals it prefers the
+local machine (no network hop), then the lowest measured round-trip.
+
+Backends are health-checked every 15 seconds. One that goes away stops
+receiving traffic and its models leave the catalogue; one that comes back
+rejoins on its own. That is what makes a GPU effectively hot-pluggable: the
+unit of hot-plugging is a machine, not a card.
+
+Responses carry `sharegpu.provider` (and an `X-ShareGPU-Provider` header) so a
+client can see which machine served it.
+
+## Pooling several cards in one Windows machine
+
+Different job from federation, and it does not involve ShareGPU at all -- it is
+Ollama configuration. Full guide with sizing arithmetic, measured throughput and
+troubleshooting: **[docs/windows-multi-gpu.md](docs/windows-multi-gpu.md)**.
+
+The short version:
+
+1. **`nvidia-smi` must list every card.** If one is missing, stop -- no Ollama
+   setting fixes a driver that has not bound to the card. Pascal (GTX 10xx) and
+   older need the 580 driver branch; the open kernel module supports Turing and
+   newer only.
+2. **Set `OLLAMA_SCHED_SPREAD=1`** in your *user* environment variables.
+   Without it the scheduler fits a model onto one card and only spills over when
+   forced.
+3. **Quit Ollama from the system tray and reopen it.** Closing the window does
+   not restart it -- it keeps running with the old environment. This is the step
+   that silently defeats people.
+4. **Verify** with `ollama ps` and `nvidia-smi` that memory is in use on *both*
+   cards.
+
+Two things worth knowing before you bother:
+
+- **VRAM adds up, throughput does not.** Layers are split across cards, so the
+  pool runs at roughly the weighted average of its members. Measured on a
+  3090 + 1080 Ti: a 14B model ran **56.7 tok/s** on the 3090 alone and
+  **45.5 tok/s** spread across both. Pool when a model does not fit on the
+  biggest card; do not when it does.
+- **`OLLAMA_CONTEXT_LENGTH` is allocated per slot**, so `NUM_PARALLEL=4`
+  multiplies your KV cache by four. That is the usual reason a model that
+  "should fit" refuses to load.
 
 ## Running models bigger than one card
 

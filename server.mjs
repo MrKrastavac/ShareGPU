@@ -12,6 +12,7 @@ import { gpu } from "./src/gpu.mjs";
 import { broker } from "./src/broker.mjs";
 import { ollama, isSafeOllamaPath, detectRunnerParallelism, isValidModelName } from "./src/ollama.mjs";
 import { jobs, safeWorkspacePath, listWorkspaceFiles } from "./src/compute.mjs";
+import { providers } from "./src/providers.mjs";
 import {
   isAllowedAddress,
   identify,
@@ -96,6 +97,11 @@ async function fullStatus(client) {
     models,
     resident,
     clients: knownClients().slice(0, 50),
+    providers: providers.list().map((p) => ({
+      id: p.id, name: p.name, url: p.url, builtin: p.builtin, enabled: p.enabled,
+      online: p.online, latencyMs: p.latencyMs, lastError: p.lastError,
+      modelCount: p.models.length, residentCount: p.resident.length,
+    })),
     pull: pullSnapshot(),
     rejected: recentRejections(),
     jobs: config.computeEnabled ? jobs.list().slice(0, 50).map((j) => j.toJSON()) : [],
@@ -453,6 +459,58 @@ async function route(req, res, url, client) {
     return sendJson(res, 200, { models: await ollama.models(), pinned: broker.pinnedModel });
   }
 
+  // ---- federation: other machines contributing their GPUs
+  if (pathname === "/api/providers") {
+    if (method === "GET") {
+      return sendJson(res, 200, {
+        providers: providers.list().map((p) => ({
+          id: p.id, name: p.name, url: p.url, builtin: p.builtin, enabled: p.enabled,
+          online: p.online, lastSeen: p.lastSeen, lastError: p.lastError,
+          version: p.version, latencyMs: p.latencyMs,
+          modelCount: p.models.length, resident: p.resident,
+        })),
+      });
+    }
+    // Adding a backend means this gateway will send prompts to it, so it is an
+    // admin action rather than something any VPN client can do.
+    if (method === "POST") {
+      if (config.lockModels && !isLoopback(client.id) && !tokensMatch(bearerFrom(req), config.computeToken)) {
+        return sendError(res, 403, "adding a machine is restricted to the host or a token holder");
+      }
+      const body = await readJson(req);
+      try {
+        const added = providers.add({ id: body.id, name: body.name, url: body.url });
+        broadcast("log", { level: "info", text: `${client.label} added backend ${added.id} (${added.url})` });
+        return sendJson(res, 201, { id: added.id, url: added.url });
+      } catch (err) {
+        return sendError(res, err.status ?? 400, err.message);
+      }
+    }
+    return sendError(res, 405, "method not allowed");
+  }
+
+  if (pathname.startsWith("/api/providers/")) {
+    const id = decodeURIComponent(pathname.slice("/api/providers/".length));
+    if (config.lockModels && !isLoopback(client.id) && !tokensMatch(bearerFrom(req), config.computeToken)) {
+      return sendError(res, 403, "managing machines is restricted to the host or a token holder");
+    }
+    if (method === "DELETE") {
+      try {
+        const ok = providers.remove(id);
+        if (ok) broadcast("log", { level: "info", text: `${client.label} removed backend ${id}` });
+        return sendJson(res, ok ? 200 : 404, { ok });
+      } catch (err) {
+        return sendError(res, err.status ?? 400, err.message);
+      }
+    }
+    if (method === "POST") {
+      const body = await readJson(req);
+      const p = providers.setEnabled(id, body.enabled);
+      return sendJson(res, p ? 200 : 404, { ok: Boolean(p) });
+    }
+    return sendError(res, 405, "method not allowed");
+  }
+
   // ---- model management
   //
   // Loading is disruptive but recoverable; pulling writes to the library and
@@ -677,6 +735,14 @@ function ufwActive() {
 }
 
 gpu.start();
+providers.init(config.ollamaUrl).start();
+providers.on("offline", (p) =>
+  broadcast("log", { level: "stderr", text: `backend ${p.id} went offline: ${p.lastError}` }),
+);
+providers.on("change", () => broadcast("providers", providers.list().map((p) => ({
+  id: p.id, name: p.name, online: p.online, enabled: p.enabled,
+  modelCount: p.models.length, latencyMs: p.latencyMs, builtin: p.builtin, lastError: p.lastError,
+}))));
 
 server.listen(config.port, config.host, async () => {
   const token = ensureComputeToken();

@@ -70,6 +70,24 @@ if ((${#PIDS[@]} == 0)); then
   exit 0
 fi
 
+# A download runs inside this process, so stopping mid-pull kills it. Ollama
+# resumes by digest on the next attempt, but silently losing an hour of
+# progress is not something to do without saying so.
+PULL="$(curl -fsS --max-time 3 "http://127.0.0.1:${PORT}/api/models/pull" 2>/dev/null \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print((d.get('model') or '')+'|'+str(d.get('percent')) if d.get('active') else '')" 2>/dev/null)"
+if [[ -n "$PULL" ]]; then
+  MODEL="${PULL%%|*}"; PCT="${PULL#*|}"
+  if [[ "${FORCE:-0}" != "1" ]]; then
+    echo "A download is in progress: ${MODEL} (${PCT}%)."
+    echo "Stopping now cancels it. Ollama resumes by digest on the next pull,"
+    echo "but you lose the current transfer."
+    echo "Stop anyway with: FORCE=1 $0"
+    notify "Not stopping: ${MODEL} is ${PCT}% downloaded. Use FORCE=1 to override." 10
+    exit 1
+  fi
+  notify "Stopping mid-download (${PCT}%) — the pull will resume next time." 8
+fi
+
 notify "Stopping ShareGPU…"
 # SIGTERM lets the server release any compute lease and kill its jobs first.
 kill -TERM "${PIDS[@]}" 2>/dev/null || true

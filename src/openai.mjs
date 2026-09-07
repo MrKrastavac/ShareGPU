@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { config } from "./config.mjs";
 import { broker } from "./broker.mjs";
 import { ollama, OllamaError } from "./ollama.mjs";
+import { providers } from "./providers.mjs";
 import { sendJson, sendError, readJson, ndjson } from "./http.mjs";
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -156,7 +157,8 @@ function resolveModel(body) {
 }
 
 export async function listModels(req, res) {
-  const models = await ollama.models();
+  const federated = providers.catalogue();
+  const models = federated.length > 0 ? federated : await ollama.models();
   sendJson(res, 200, {
     object: "list",
     data: models.map((m) => ({
@@ -170,6 +172,9 @@ export async function listModels(req, res) {
         parameter_size: m.parameterSize,
         quantization: m.quantization,
         pinned: m.name === broker.pinnedModel,
+        // Which machines can serve this, and whether one already holds it.
+        providers: m.providers ?? ["local"],
+        resident: m.resident ?? false,
       },
     })),
   });
@@ -227,11 +232,17 @@ export async function chatCompletions(req, res, client) {
       ...(body.response_format?.type === "json_object" ? { format: "json" } : {}),
     });
 
+    // Route to a backend that actually has this model. Falls back to the local
+    // one so a single-machine install behaves exactly as before.
+    const backend = providers.pickFor(model);
+    const baseUrl = backend?.url;
+
     const call = (withThink) =>
       ollama.raw("/api/chat", {
         method: "POST",
         signal,
         timeoutMs: config.requestTimeoutMs,
+        baseUrl,
         body: buildBody(withThink),
       });
 
@@ -283,7 +294,7 @@ export async function chatCompletions(req, res, client) {
           },
         ],
         usage: usageFrom(data),
-        sharegpu: { queued_ms: slot.waitedMs, model },
+        sharegpu: { queued_ms: slot.waitedMs, model, provider: backend?.id ?? "local" },
       });
       return;
     }
@@ -294,6 +305,7 @@ export async function chatCompletions(req, res, client) {
       connection: "keep-alive",
       "x-accel-buffering": "no",
       "x-sharegpu-queued-ms": String(slot.waitedMs),
+      "x-sharegpu-provider": backend?.id ?? "local",
     });
     res.flushHeaders?.();
 

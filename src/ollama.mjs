@@ -24,13 +24,14 @@ export class OllamaError extends Error {
   }
 }
 
-async function call(pathname, { method = "GET", body, signal, timeoutMs = 30_000 } = {}) {
+async function call(pathname, { method = "GET", body, signal, timeoutMs = 30_000, baseUrl } = {}) {
+  const base = baseUrl ?? config.ollamaUrl;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const onAbort = () => controller.abort();
   signal?.addEventListener("abort", onAbort, { once: true });
   try {
-    const res = await fetch(`${config.ollamaUrl}${pathname}`, {
+    const res = await fetch(`${base}${pathname}`, {
       method,
       headers: body ? { "content-type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,
@@ -39,7 +40,7 @@ async function call(pathname, { method = "GET", body, signal, timeoutMs = 30_000
     return res;
   } catch (err) {
     if (err.name === "AbortError") throw new OllamaError("upstream request aborted", 504);
-    throw new OllamaError(`cannot reach Ollama at ${config.ollamaUrl}: ${err.message}`, 502);
+    throw new OllamaError(`cannot reach Ollama at ${base}: ${err.message}`, 502);
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);

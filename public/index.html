@@ -134,6 +134,25 @@
       </div>
     </section>
 
+    <section class="card" aria-labelledby="h-machines">
+      <h2 id="h-machines">Machines in the pool</h2>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Machine</th><th>Status</th><th class="num">Models</th><th class="num">Ping</th><th></th></tr></thead>
+          <tbody id="provider-rows"></tbody>
+        </table>
+      </div>
+      <div class="try" style="margin-top:13px">
+        <div class="label" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Add a machine</div>
+        <div class="urlrow">
+          <label class="sr-only" for="prov-url">Ollama URL</label>
+          <input id="prov-url" type="text" placeholder="http://other-pc:11434" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <button id="prov-add">Add</button>
+        </div>
+      </div>
+      <div class="note">Any machine running Ollama can join — Windows and macOS included. Its models become available here and requests route to whichever machine already holds the model.</div>
+    </section>
+
     <section class="card" aria-labelledby="h-clients">
       <h2 id="h-clients">Clients seen</h2>
       <div class="tw">

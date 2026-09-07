@@ -180,6 +180,22 @@ function renderModels() {
       .join("") || `<tr><td colspan="4" class="empty">no models found on the runner</td></tr>`;
 }
 
+function renderProviders() {
+  const list = state.providers ?? [];
+  $("provider-rows").innerHTML = list.map((p) => {
+    const dot = p.online ? "good" : p.enabled ? "bad" : "muted";
+    const label = p.online ? "online" : p.enabled ? (p.lastError || "offline") : "disabled";
+    return `<tr>
+      <td class="mono">${esc(p.name)}${p.builtin ? ' <span class="pill pinned">this box</span>' : ""}
+        <div class="gmeta">${esc(p.url ?? "")}</div></td>
+      <td><span class="pill ${dot === "good" ? "succeeded" : dot === "bad" ? "failed" : "pending"}">${esc(label)}</span></td>
+      <td class="num">${p.modelCount ?? 0}</td>
+      <td class="num">${p.latencyMs != null ? p.latencyMs + "ms" : "—"}</td>
+      <td style="text-align:right">${p.builtin ? "" : `<button data-drop="${esc(p.id)}">Remove</button>`}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="5" class="empty">only this machine</td></tr>`;
+}
+
 function renderClients() {
   $("client-rows").innerHTML =
     state.clients
@@ -237,6 +253,7 @@ function renderAll() {
   renderBroker();
   renderModels();
   renderClients();
+  renderProviders();
   renderJobs();
   renderPull();
 }
@@ -295,6 +312,38 @@ function renderPull() {
   $("pull-text").textContent = `${pull.model} — ${pull.status ?? ""} ${done}${total}`.trim();
   $("pull-note").textContent = pull.by ? `Started by ${pull.by}` : "";
 }
+
+$("prov-add")?.addEventListener("click", async () => {
+  const url = $("prov-url").value.trim();
+  if (!url) return;
+  $("prov-add").disabled = true;
+  try {
+    const res = await fetch("/api/providers", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-sharegpu-client": "dashboard" },
+      body: JSON.stringify({ url }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message ?? res.statusText);
+    log(`added machine ${data.id}`);
+    $("prov-url").value = "";
+    refresh();
+  } catch (err) {
+    log(`could not add machine: ${err.message}`, "stderr");
+  } finally {
+    $("prov-add").disabled = false;
+  }
+});
+
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-drop]");
+  if (!button) return;
+  button.disabled = true;
+  const id = button.dataset.drop;
+  await fetch(`/api/providers/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+  log(`removed machine ${id}`);
+  refresh();
+});
 
 $("pull-go")?.addEventListener("click", async () => {
   const model = $("pull-name").value.trim();
@@ -646,6 +695,10 @@ function connect() {
     const job = JSON.parse(event.data);
     log(`job ${job.id.slice(0, 8)} ${job.status}${job.exit_code != null ? ` (exit ${job.exit_code})` : ""}`);
     refresh();
+  });
+  source.addEventListener("providers", (event) => {
+    state.providers = JSON.parse(event.data);
+    renderProviders();
   });
   source.addEventListener("pull", (event) => {
     state.pull = JSON.parse(event.data);
