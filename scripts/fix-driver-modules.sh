@@ -20,7 +20,9 @@ echo "  dkms module: nvidia/$DKMS_VER"
 
 # Every installed kernel, not just the running one: the fallback kernel needs a
 # module too, or it is not a fallback.
-mapfile -t KERNELS < <(ls -1 /usr/lib/modules 2>/dev/null | grep -E 'cachyos')
+mapfile -t _ALL < <(ls -1 /usr/lib/modules 2>/dev/null | grep -vE '^extramodules')
+KERNELS=()
+for _k in "${_ALL[@]}"; do [[ -d "/usr/lib/modules/$_k/kernel" ]] && KERNELS+=("$_k"); done
 
 banner "Building for every installed kernel"
 for k in "${KERNELS[@]}"; do

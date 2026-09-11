@@ -18,7 +18,7 @@ const opt = (name, fallback) => {
   return fallback;
 };
 
-// Loopback unless explicitly opened to the VPN, matching Local Media Gen.
+// Loopback unless explicitly opened to the VPN.
 const vpnMode = flag("vpn") || process.env.SHAREGPU_VPN === "1";
 
 const fileConfig = (() => {

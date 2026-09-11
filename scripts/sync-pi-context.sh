@@ -9,8 +9,9 @@ set -uo pipefail
 CFG="$HOME/.pi/agent/models.json"
 [[ -f "$CFG" ]] || { echo "no pi config at $CFG"; exit 1; }
 
-CTX=$(systemctl --user show local-llm-agent -p Environment 2>/dev/null \
-      | tr ' ' '\n' | grep -oP 'OLLAMA_CONTEXT_LENGTH=\K[0-9]+')
+. "$(dirname "${BASH_SOURCE[0]}")/lib/ollama-unit.sh"
+CTX=""
+ollama_unit_detect && CTX=$(ollama_env_get OLLAMA_CONTEXT_LENGTH)
 [[ -n "$CTX" ]] || CTX=$(curl -fsS --max-time 5 http://127.0.0.1:11434/api/ps 2>/dev/null \
       | python3 -c "import sys,json;m=json.load(sys.stdin).get('models',[]);print(m[0].get('context_length','') if m else '')")
 [[ -n "$CTX" ]] || { echo "could not determine the server's context length"; exit 1; }

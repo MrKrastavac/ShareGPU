@@ -272,6 +272,20 @@ so a complete 128k prompt takes about 13 minutes before the first token, against
 ~3 minutes at 32k. Most turns use a fraction of the window -- you pay this only
 when you genuinely fill it.
 
+### Which Ollama service the scripts change
+
+`context.sh`, `model-profile.sh` and `pool-gpus.sh` find the systemd unit
+running `ollama serve` on their own -- an active user unit first, then a system
+one, then the stock `ollama.service`. If yours is named differently, say so:
+
+```bash
+OLLAMA_UNIT=my-ollama OLLAMA_UNIT_SCOPE=user ./scripts/context.sh 32k
+```
+
+They never edit your unit file. Changes go into a drop-in, `sharegpu.conf`,
+beside it -- delete that file, `daemon-reload` and restart to undo everything
+they changed. A system unit needs `sudo` for the write and the restart.
+
 ## Desktop shortcuts
 
 ```bash
@@ -301,8 +315,8 @@ The plain icon starts with compute and downloads enabled. Edit `Exec=` in
 Two things the stop script is careful about. It only signals a `node` process
 whose argv actually resolves to *this checkout's* `server.mjs`, checked through
 `/proc` -- matching the command line alone would also catch an editor or a grep
-that merely mentions the filename. And it leaves Ollama running, because Local
-Media Gen and MusicGen share that same runner; `--free-gpu` unloads the weights
+that merely mentions the filename. And it leaves Ollama running, because other
+tools on the machine may share that runner; `--free-gpu` unloads the weights
 but never stops the service.
 
 ## Setup
@@ -317,8 +331,7 @@ Open <http://127.0.0.1:8770> for the dashboard.
 
 ### Serving the VPN
 
-Following the same rules as Local Media Gen: everything binds `127.0.0.1` by
-default, and Ollama stays on loopback — peers reach it only through this
+Everything binds `127.0.0.1` by default, and Ollama stays on loopback — peers reach it only through this
 gateway's proxy, never directly.
 
 ```bash
@@ -352,7 +365,7 @@ script prints the exact `--allow` CIDR to use). If nothing appears, the block is
 below ShareGPU: ufw, or a tunnel whose `AllowedIPs` does not route this LAN.
 
 **Never bind this to a public interface.** The gateway has no user accounts;
-reachability *is* the authorisation for chat, exactly as in Local Media Gen.
+reachability *is* the authorisation for chat.
 
 ## Using it — chat
 
@@ -432,9 +445,9 @@ Measured on this box with qwen3:14b and `OLLAMA_KV_CACHE_TYPE=q8_0`:
 
 `OLLAMA_CONTEXT_LENGTH` is allocated *per slot*, so raising parallelism
 multiplies it. Four slots at the full 32k leaves so little headroom that
-ComfyUI cannot generate an image while the model is warm -- which matters here,
-because Local Media Gen shares this same runner. Four slots at 16k is the
-balance this machine is set to.
+ComfyUI cannot generate an image while the model is warm -- which matters on
+any machine where image generation shares the GPU. Four slots at 16k is a
+sensible balance.
 
 A 27B model has no room for four slots at any useful context; pin the 14B for
 agent work and keep the larger models for single-user chat.

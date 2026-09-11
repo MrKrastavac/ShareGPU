@@ -12,9 +12,8 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-UNIT="$HOME/.config/systemd/user/local-llm-agent.service"
-[[ -L "$UNIT" ]] && UNIT="$(readlink -f "$UNIT")"
-[[ -f "$UNIT" ]] || { echo "cannot find the Ollama unit"; exit 1; }
+. scripts/lib/ollama-unit.sh
+ollama_unit_require || exit 1
 OLLAMA="${OLLAMA_URL:-http://127.0.0.1:11434}"
 
 human() { python3 -c "
@@ -25,7 +24,7 @@ parse() { python3 -c "
 s='$1'.strip().lower().replace('_','')
 print(int(float(s[:-1])*1024) if s.endswith('k') else int(s))" 2>/dev/null; }
 
-current() { grep -oP '^Environment=OLLAMA_CONTEXT_LENGTH=\K[0-9]+' "$UNIT" || echo 0; }
+current() { local v; v=$(ollama_env_get OLLAMA_CONTEXT_LENGTH); echo "${v:-0}"; }
 
 # What the resident model costs per token of context, from its own metadata.
 budget_report() {
@@ -85,16 +84,14 @@ echo "  $(human "$CUR") -> $(human "$WANT")"
 PINNED=$(curl -fsS --max-time 5 "$OLLAMA/api/ps" 2>/dev/null \
   | python3 -c "import sys,json;m=json.load(sys.stdin).get('models',[]);print(m[0]['name'] if m else '')")
 
-cp -a "$UNIT" "${UNIT}.bak-$(date +%Y%m%d-%H%M%S)"
-if grep -q '^Environment=OLLAMA_CONTEXT_LENGTH=' "$UNIT"; then
-  sed -i "s|^Environment=OLLAMA_CONTEXT_LENGTH=.*|Environment=OLLAMA_CONTEXT_LENGTH=${WANT}|" "$UNIT"
-else
-  sed -i "/^ExecStart=/i Environment=OLLAMA_CONTEXT_LENGTH=${WANT}" "$UNIT"
+if ! ollama_env_set OLLAMA_CONTEXT_LENGTH "$WANT"; then
+  echo "  could not write $(ollama_dropin)"
+  exit 1
 fi
-
-systemctl --user daemon-reload
-systemctl --user restart local-llm-agent
-for _ in $(seq 1 30); do curl -fsS --max-time 2 "$OLLAMA/api/version" >/dev/null 2>&1 && break; sleep 1; done
+if ! ollama_restart; then
+  echo "  Ollama did not come back. Check: $(ollama_status_hint)"
+  exit 1
+fi
 echo "  Ollama restarted at $(human "$WANT")"
 
 if [[ -n "$PINNED" ]]; then

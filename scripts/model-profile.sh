@@ -13,61 +13,45 @@
 # want resident. A 28 GiB model cannot share the card with three other KV
 # caches; a 14 GiB one is wasted without them.
 #
-# Ollama is shared with Local Media Gen and MusicGen, so a switch briefly
-# interrupts them. Nothing is lost -- they reconnect on their next request.
+# Anything else using the same Ollama is briefly interrupted by a switch.
+# Nothing is lost -- clients reconnect on their next request.
+#
+# Settings are written to a systemd drop-in, never to your unit file. The unit
+# is found automatically; override with OLLAMA_UNIT=<name>.
 set -uo pipefail
-
-UNIT="$HOME/.config/systemd/user/local-llm-agent.service"
-[[ -L "$UNIT" ]] && UNIT="$(readlink -f "$UNIT")"
-[[ -f "$UNIT" ]] || { echo "cannot find the Ollama unit file"; exit 1; }
+. "$(dirname "${BASH_SOURCE[0]}")/lib/ollama-unit.sh"
+ollama_unit_require || exit 1
 
 show() {
-  echo "  current:"
-  grep -E "^Environment=OLLAMA_(NUM_PARALLEL|CONTEXT_LENGTH|KV_CACHE_TYPE|SCHED_SPREAD)=" "$UNIT" \
-    | sed 's/^Environment=/    /'
+  echo "  current ($OLLAMA_UNIT, $OLLAMA_UNIT_SCOPE unit):"
+  local k
+  for k in OLLAMA_NUM_PARALLEL OLLAMA_CONTEXT_LENGTH OLLAMA_KV_CACHE_TYPE OLLAMA_SCHED_SPREAD; do
+    printf '    %s=%s\n' "$k" "$(ollama_env_get "$k")"
+  done
 }
 
 case "${1:-}" in
-  shared) PAR=4; CTX=16384; KV=q8_0 ;;
-  big)    PAR=1; CTX=16384; KV=q8_0 ;;
-  huge)   PAR=1; CTX=8192;  KV=q4_0 ;;
+  shared) PAR=4; CTX=16384;  KV=q8_0 ;;
+  big)    PAR=1; CTX=16384;  KV=q8_0 ;;
+  huge)   PAR=1; CTX=8192;   KV=q4_0 ;;
   long)   PAR=1; CTX=131072; KV=q8_0 ;;
   "")     show; echo; echo "  profiles: shared | big | huge | long"; exit 0 ;;
   *)      echo "  unknown profile '${1}'. Use: shared | big | huge | long"; exit 1 ;;
 esac
 
-cp -a "$UNIT" "${UNIT}.bak-$(date +%Y%m%d-%H%M%S)"
-
-set_env() {  # key value -- replace in place, or insert before ExecStart
-  local k="$1" v="$2"
-  if grep -q "^Environment=${k}=" "$UNIT"; then
-    sed -i "s|^Environment=${k}=.*|Environment=${k}=${v}|" "$UNIT"
-  else
-    sed -i "/^ExecStart=/i Environment=${k}=${v}" "$UNIT"
-  fi
-}
-
-set_env OLLAMA_NUM_PARALLEL   "$PAR"
-set_env OLLAMA_CONTEXT_LENGTH "$CTX"
-set_env OLLAMA_KV_CACHE_TYPE  "$KV"
-
 echo "  applying profile '${1}': ${PAR} slot(s), ${CTX} ctx, ${KV} KV"
-systemctl --user daemon-reload
-systemctl --user restart local-llm-agent
-for _ in $(seq 1 30); do
-  curl -fsS --max-time 2 "${OLLAMA_URL:-http://127.0.0.1:11434}/api/version" >/dev/null 2>&1 && break
-  sleep 1
-done
-if ! curl -fsS --max-time 3 "${OLLAMA_URL:-http://127.0.0.1:11434}/api/version" >/dev/null 2>&1; then
-  echo "  Ollama did not come back. Check: systemctl --user status local-llm-agent"
+if ! ollama_env_set OLLAMA_NUM_PARALLEL "$PAR" OLLAMA_CONTEXT_LENGTH "$CTX" OLLAMA_KV_CACHE_TYPE "$KV"; then
+  echo "  could not write $(ollama_dropin)"
+  exit 1
+fi
+if ! ollama_restart; then
+  echo "  Ollama did not come back. Check: $(ollama_status_hint)"
   exit 1
 fi
 echo "  Ollama restarted."
 echo
 show
 echo
-echo "  Note: the pi harness caps context at what the server serves."
-if [[ "$CTX" != "16384" ]]; then
-  echo "  ctx is now ${CTX} -- pi's models.json still says 16384 for most models."
-fi
+echo "  Clients that declare a context of their own should be re-synced,"
+echo "  e.g. ./scripts/sync-pi-context.sh"
 exit 0

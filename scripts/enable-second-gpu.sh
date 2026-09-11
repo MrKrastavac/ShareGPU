@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Swap the NVIDIA driver so BOTH GPUs work, then pool them for large models.
 #
+# Written for Arch-based systems: pacman, with CachyOS kernel package names. The
+# approach carries over to other distributions; the package names do not.
+#
 #   enable-second-gpu.sh            show what would change, change nothing
 #   enable-second-gpu.sh --apply    do it
 #   enable-second-gpu.sh --rollback go back to the open 610 driver
@@ -81,7 +84,7 @@ WARN
     # an unbootable desktop.
     banner "Building the module for every installed kernel"
     DKMS_VER="$(dkms status 2>/dev/null | grep -m1 '^nvidia/' | cut -d/ -f2 | cut -d, -f1)"
-    for k in $(ls -1 /usr/lib/modules 2>/dev/null | grep -E 'cachyos'); do
+    for k in $(ls -1 /usr/lib/modules 2>/dev/null | grep -vE '^extramodules'); do
       [[ -d "/usr/lib/modules/$k/build" ]] || continue
       if [[ -f "/usr/lib/modules/$k/updates/dkms/nvidia.ko.zst" ]]; then
         echo "  $k already built"
@@ -94,7 +97,7 @@ WARN
 
     banner "Verifying before touching the initramfs"
     SAFE=1
-    for k in $(ls -1 /usr/lib/modules 2>/dev/null | grep -E 'cachyos'); do
+    for k in $(ls -1 /usr/lib/modules 2>/dev/null | grep -vE '^extramodules'); do
       [[ -d "/usr/lib/modules/$k/build" ]] || continue
       for m in nvidia nvidia_modeset nvidia_uvm nvidia_drm; do
         modinfo -k "$k" "$m" >/dev/null 2>&1 || { echo "  $k cannot resolve $m"; SAFE=0; }

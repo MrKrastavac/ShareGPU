@@ -17,10 +17,7 @@
 #   and a loss when it does.
 set -uo pipefail
 
-UNIT="$HOME/.config/systemd/user/local-llm-agent.service"
-SRC="${OLLAMA_UNIT_SRC:-$HOME/.config/systemd/user/local-llm-agent.service}"
-[[ -L "$UNIT" ]] && UNIT="$(readlink -f "$UNIT")"
-[[ -f "$UNIT" ]] || UNIT="$SRC"
+. "$(dirname "${BASH_SOURCE[0]}")/lib/ollama-unit.sh"
 
 banner() { printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
 
@@ -52,27 +49,26 @@ EXPLAIN
 
 case "${1:-}" in
   --apply|--revert)
-    [[ -w "$UNIT" ]] || { echo "  cannot write $UNIT"; exit 1; }
-    cp -a "$UNIT" "${UNIT}.bak-$(date +%Y%m%d-%H%M%S)"
-    echo "  backed up ${UNIT}.bak-*"
-
-    # Drop any line we manage, then re-add if applying.
-    sed -i '/^Environment=OLLAMA_SCHED_SPREAD=/d' "$UNIT"
+    ollama_unit_require || exit 1
     if [[ "$1" == "--apply" ]]; then
-      sed -i '/^ExecStart=/i Environment=OLLAMA_SCHED_SPREAD=1' "$UNIT"
-      echo "  set OLLAMA_SCHED_SPREAD=1"
+      ollama_env_set OLLAMA_SCHED_SPREAD 1 || exit 1
+      echo "  set OLLAMA_SCHED_SPREAD=1 in $(ollama_dropin)"
     else
-      echo "  removed OLLAMA_SCHED_SPREAD"
+      # 0 rather than removal: the unit file itself may also set it.
+      ollama_env_set OLLAMA_SCHED_SPREAD 0 || exit 1
+      echo "  set OLLAMA_SCHED_SPREAD=0 in $(ollama_dropin)"
     fi
 
-    systemctl --user daemon-reload
-    systemctl --user restart local-llm-agent
-    sleep 4
-    systemctl --user is-active --quiet local-llm-agent \
-      && echo "  Ollama restarted" || { echo "  Ollama failed to restart -- check: systemctl --user status local-llm-agent"; exit 1; }
+    if ! ollama_restart; then
+      echo "  Ollama failed to restart -- check: $(ollama_status_hint)"
+      exit 1
+    fi
+    echo "  Ollama restarted"
 
     banner "Effective environment"
-    systemctl --user show local-llm-agent -p Environment | tr ' ' '\n' | grep -E "OLLAMA_(SCHED|NUM_PARALLEL|CONTEXT|KV|FLASH)" | sed 's/^/  /'
+    for k in OLLAMA_SCHED_SPREAD OLLAMA_NUM_PARALLEL OLLAMA_CONTEXT_LENGTH OLLAMA_KV_CACHE_TYPE OLLAMA_FLASH_ATTENTION; do
+      printf '  %s=%s\n' "$k" "$(ollama_env_get "$k")"
+    done
 
     if [[ "$1" == "--apply" ]]; then
       banner "What now fits"

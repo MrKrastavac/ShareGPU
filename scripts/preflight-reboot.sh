@@ -23,7 +23,8 @@ echo
 echo "== driver state =="
 grep -q "blacklist nouveau" /usr/lib/modprobe.d/*.conf /etc/modprobe.d/*.conf 2>/dev/null \
   && ok "nouveau blacklisted" || bad "nouveau NOT blacklisted"
-for k in $(ls -1 /usr/lib/modules | grep cachyos); do
+for k in $(ls -1 /usr/lib/modules | grep -vE '^extramodules'); do
+  [[ -d "/usr/lib/modules/$k/kernel" ]] || continue
   v=$(modinfo -k "$k" nvidia 2>/dev/null | awk '/^version/{print $2}')
   [[ -n "$v" ]] && ok "$k -> nvidia $v" || bad "$k -> no nvidia module"
 done

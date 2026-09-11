@@ -4,10 +4,9 @@
 #   stop.sh              stop the gateway
 #   stop.sh --free-gpu   also ask Ollama to unload its models, freeing VRAM
 #
-# Only this project's own server is touched. Ollama is a shared service -- Local
-# Media Gen and MusicGen use the same runner -- so it is left running unless
-# --free-gpu is given, and even then only its weights are unloaded, not the
-# service stopped.
+# Only this project's own server is touched. Ollama is often shared with other
+# tools on the same machine, so it is left running unless --free-gpu is given,
+# and even then only its weights are unloaded -- the service is never stopped.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 ROOT="$PWD"
