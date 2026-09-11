@@ -44,6 +44,23 @@ function thinkSetting(body) {
 }
 
 /**
+ * What to do when the caller says nothing about reasoning.
+ *
+ * Thinking models default to thinking, and the scratchpad does not appear in
+ * `content` -- so a plain OpenAI client that has never heard of reasoning gets
+ * an empty message and a finish_reason of "length", which reads as the model
+ * having failed. Since the endpoint claims OpenAI compatibility, the safe
+ * default is off: a client that wants reasoning can ask for it, and one that
+ * does not should still get an answer.
+ */
+function resolveThink(body, capabilities) {
+  const explicit = thinkSetting(body);
+  if (explicit !== undefined) return explicit;
+  if (!capabilities.includes("thinking")) return undefined;
+  return config.thinkByDefault ? undefined : false;
+}
+
+/**
  * Ollama and OpenAI disagree about tool calls in three ways that each break a
  * real client:
  *   - arguments: Ollama uses an object, the OpenAI spec a JSON-encoded string,
@@ -127,6 +144,24 @@ function toUpstreamMessages(messages) {
       }),
     };
   });
+}
+
+/**
+ * A response cut off by the token budget looks, to a client that renders no
+ * reasoning, exactly like the model stalling -- the user sees output stop and
+ * types "continue". Naming it in the log turns that into a diagnosable event
+ * rather than a mystery.
+ */
+function logFinish(data, model, slot, body) {
+  if (data.done_reason !== "length") return;
+  const think = (data.message?.thinking || "").length;
+  const content = (data.message?.content || "").length;
+  const cap = body?.max_completion_tokens ?? body?.max_tokens ?? "unset";
+  process.stdout.write(
+    `TRUNCATED: ${model} hit the token limit (max_tokens=${cap}, ` +
+      `used ${data.eval_count ?? "?"}). reasoning=${think} chars, content=${content} chars. ` +
+      `${think > content ? "Reasoning consumed most of the budget." : ""}\n`,
+  );
 }
 
 const finishReason = (reason) => {
@@ -228,7 +263,7 @@ export async function chatCompletions(req, res, client) {
       keep_alive: config.keepAlive,
       options: toOllamaOptions(body),
       ...(body.tools ? { tools: body.tools } : {}),
-      ...(withThink && thinkSetting(body) !== undefined ? { think: thinkSetting(body) } : {}),
+      ...(withThink && think !== undefined ? { think } : {}),
       ...(body.response_format?.type === "json_object" ? { format: "json" } : {}),
     });
 
@@ -236,6 +271,8 @@ export async function chatCompletions(req, res, client) {
     // one so a single-machine install behaves exactly as before.
     const backend = providers.pickFor(model);
     const baseUrl = backend?.url;
+    const capabilities = await ollama.capabilities(model, baseUrl);
+    const think = resolveThink(body, capabilities);
 
     const call = (withThink) =>
       ollama.raw("/api/chat", {
@@ -291,6 +328,7 @@ export async function chatCompletions(req, res, client) {
             // A loop that branches on finish_reason must see tool_calls, or it
             // will treat a tool request as a finished answer.
             finish_reason: data.message?.tool_calls?.length ? "tool_calls" : finishReason(data.done_reason),
+            ...(logFinish(data, model, slot, body), {}),
           },
         ],
         usage: usageFrom(data),
@@ -309,9 +347,25 @@ export async function chatCompletions(req, res, client) {
     });
     res.flushHeaders?.();
 
+    let lastWrite = Date.now();
     const write = (payload) => {
       if (!res.writableEnded) res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      lastWrite = Date.now();
     };
+
+    // A tool call is emitted by the runner as a single chunk once the whole
+    // call is formed, so a large one produces no bytes for minutes. Node's
+    // fetch aborts a response after 300s without data and reports it as
+    // "terminated", which looks like the model dying mid-task. SSE comment
+    // frames are ignored by clients but reset that timer.
+    const heartbeat = setInterval(() => {
+      if (res.writableEnded) return;
+      if (Date.now() - lastWrite >= 15_000) {
+        res.write(`: keepalive\n\n`);
+        lastWrite = Date.now();
+      }
+    }, 5_000);
+    heartbeat.unref?.();
 
     let sentRole = false;
     let sawToolCall = false;
@@ -339,6 +393,13 @@ export async function chatCompletions(req, res, client) {
           if (Object.keys(delta).length > 0) {
             write({ id, object: "chat.completion.chunk", created: now(), model, choices: [{ index: 0, delta, finish_reason: null }] });
           }
+          if (chunk.done_reason === "length") {
+            process.stdout.write(
+              `TRUNCATED (streaming): ${model} hit the token limit ` +
+                `(max_tokens=${body?.max_completion_tokens ?? body?.max_tokens ?? "unset"}, ` +
+                `used ${chunk.eval_count ?? "?"}).\n`,
+            );
+          }
           write({
             id,
             object: "chat.completion.chunk",
@@ -359,6 +420,7 @@ export async function chatCompletions(req, res, client) {
         write({ error: { message: err.message } });
       }
     } finally {
+      clearInterval(heartbeat);
       if (!res.writableEnded) res.end();
     }
   });

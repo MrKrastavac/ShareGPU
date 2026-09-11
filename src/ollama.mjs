@@ -155,7 +155,29 @@ export function isValidModelName(name) {
   return /^[A-Za-z0-9][A-Za-z0-9._\-\/]*(:[A-Za-z0-9._\-]+)?$/.test(trimmed);
 }
 
+// Capabilities are a property of the model's template and never change for a
+// given tag, so one lookup per model is enough.
+const capabilityCache = new Map();
+
 export const ollama = {
+  async capabilities(model, baseUrl) {
+    const key = `${baseUrl ?? ""}|${model}`;
+    if (capabilityCache.has(key)) return capabilityCache.get(key);
+    try {
+      const data = await json("/api/show", {
+        method: "POST",
+        body: { model },
+        baseUrl,
+        timeoutMs: 15_000,
+      });
+      const caps = data.capabilities ?? [];
+      capabilityCache.set(key, caps);
+      return caps;
+    } catch {
+      return [];
+    }
+  },
+
   /** Streaming-capable raw call, used by the chat proxy. */
   raw: (pathname, options) => call(pathname, options),
 

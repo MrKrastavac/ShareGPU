@@ -89,6 +89,9 @@ export const config = {
 
   // LLM serving.
   pinnedModel: pick("model", "SHAREGPU_MODEL", "pinnedModel", null),
+  // Thinking models otherwise return an empty message to any client that does
+  // not know to ask for reasoning. Opt in with --think-by-default.
+  thinkByDefault: flag("think-by-default") || process.env.SHAREGPU_THINK_DEFAULT === "1",
   keepAlive: pick("keep-alive", "SHAREGPU_KEEP_ALIVE", "keepAlive", "30m"),
   maxConcurrentLlm: num(pick("concurrency", "SHAREGPU_CONCURRENCY", "maxConcurrentLlm"), 4),
   // null means "whatever the runner decides". Raising this costs KV cache per
@@ -137,6 +140,10 @@ export const config = {
 
 export const usableVramMb = () => {
   const total = config.totalVramMb || gpu.totalMb();
+  // Before the first nvidia-smi poll there is nothing to measure. Reporting a
+  // budget of zero would read as "no VRAM at all" and refuse work that would
+  // have fit; null says "not known yet", which callers can handle honestly.
+  if (!total) return null;
   return Math.max(0, total - config.reservedVramMb);
 };
 
@@ -160,6 +167,7 @@ export function showHelp() {
   --model <name>        model to keep resident and warm
   --concurrency <n>     concurrent LLM requests sharing the resident model
   --ctx <n>             context window per request (default: the runner's own)
+  --think-by-default    let thinking models think unless a caller opts out
   --reserve <mb>        VRAM left to the desktop session (default 1536)
   --lock-models         restrict model loading to the host or a token holder
   --allow-pull          let dashboard users download new models

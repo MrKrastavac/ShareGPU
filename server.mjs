@@ -734,6 +734,11 @@ function ufwActive() {
   }
 }
 
+// The first poll is awaited rather than fired and forgotten: VRAM is measured
+// rather than configured now, so anything reading the budget before that poll
+// lands sees zero -- which the banner prints and, worse, which would wrongly
+// refuse a compute lease requested in the first seconds after startup.
+await gpu.poll();
 gpu.start();
 providers.init(config.ollamaUrl).start();
 providers.on("offline", (p) =>
@@ -752,7 +757,7 @@ server.listen(config.port, config.host, async () => {
       ? `  allow-list: ${describeAllowList().join(", ")}`
       : "  loopback only -- pass --vpn to serve other devices",
     `  ollama:  ${config.ollamaUrl}`,
-    `  budget:  ${usableVramMb()} MB shareable (${config.reservedVramMb} MB reserved for the desktop)`,
+    `  budget:  ${usableVramMb() ?? "measuring"} MB shareable (${config.reservedVramMb} MB reserved for the desktop)`,
     `  compute: ${config.computeEnabled ? "ENABLED" : "disabled"}`,
   ];
   if (token) lines.push(`  compute token: ${token}`);

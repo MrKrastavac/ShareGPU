@@ -46,7 +46,7 @@ done
 case "$MODE" in
   local) ARGS=("--model" "${SHAREGPU_MODEL:-hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q5_K_M}") ;;
   chat)  ARGS=("--vpn" "--model" "${SHAREGPU_MODEL:-hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q5_K_M}") ;;
-  *)     ARGS=("--vpn" "--allow-compute" "--allow-pull" "--model" "${SHAREGPU_MODEL:-hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q5_K_M}") ;;
+  *)     ARGS=("--vpn" "--allow-compute" "--allow-pull" "--think-by-default" "--model" "${SHAREGPU_MODEL:-hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q5_K_M}") ;;
 esac
 ((${#PASSTHROUGH[@]})) && ARGS+=("${PASSTHROUGH[@]}")
 

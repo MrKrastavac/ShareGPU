@@ -165,8 +165,11 @@ class Broker extends EventEmitter {
     const free = gpu.freeMb();
     const resident = await ollama.resident().catch(() => []);
     const evictable = resident.reduce((sum, m) => sum + (m.sizeVramMb || 0), 0);
+    // null means the card has not been measured yet; fall back to what is
+    // observably free rather than treating "unknown" as "none".
     const policyCap = usableVramMb();
-    const budget = { free, evictable, policyCap, achievable: Math.min(policyCap, free + evictable) };
+    const achievable = policyCap === null ? free + evictable : Math.min(policyCap, free + evictable);
+    const budget = { free, evictable, policyCap, achievable };
     this.#lastShareable = budget.achievable;
     return budget;
   }
