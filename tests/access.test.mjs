@@ -23,7 +23,7 @@ test("allows the whole private space by default, not just one subnet", () => {
   // A router terminating WireGuard often puts peers on a different subnet from
   // the LAN, so a narrow default silently refuses them. Narrowing is done with
   // --allow once you know your own ranges.
-  for (const addr of ["192.168.1.5", "192.168.3.7", "172.16.0.1"]) {
+  for (const addr of ["192.168.1.5", "192.168.7.7", "172.16.0.1"]) {
     assert.equal(isAllowedAddress(addr), true, addr);
   }
 });
